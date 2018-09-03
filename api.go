@@ -12,20 +12,20 @@ import (
 	"github.com/gorilla/mux"
 )
 
-var gameserverRedis *redis.Client
+var playerRedis *redis.Client
 
-type GameServer struct {
-	Status  string
-	Players	string
-	Pot			string
+type Player struct {
+	Id  string
+	Status	string
+	Gameserver	string
 }
 
 func main() {
 	corsObj := handlers.AllowedOrigins([]string{"*"})
 	router := mux.NewRouter()
-	router.HandleFunc("/games", Games).Methods("GET")
-	gameserverRedis = connectToRedis("redis-gameservers:6379")
-	log.Fatal(http.ListenAndServe(":6001", handlers.CORS(corsObj)(router)))
+	router.HandleFunc("/player/{token}", PlayerHandler).Methods("GET")
+	playerRedis = connectToRedis("redis-players:6379")
+	log.Fatal(http.ListenAndServe(":6002", handlers.CORS(corsObj)(router)))
 }
 
 func connectToRedis(addr string) *redis.Client {
@@ -49,15 +49,12 @@ func connectToRedis(addr string) *redis.Client {
 	return client
 }
 
-func Games(w http.ResponseWriter, r *http.Request) {
-	keys, _ := gameserverRedis.Keys("*").Result()
-	gameServers := make(map[string]*GameServer)
-	for _, id := range keys {
-		status, _ := gameserverRedis.HGet(id, "status").Result()
-		players, _ := gameserverRedis.HGet(id, "players").Result()
-		pot, _ := gameserverRedis.HGet(id, "pot").Result()
-		gameServer := &GameServer{status, players, pot}
-		gameServers[id] = gameServer
+func PlayerHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	token := vars["token"]
+	status, err := playerRedis.HGet(token, "status").Result()
+	if err!=nil || status == ""  {
+		status = "invalid"
 	}
-	json.NewEncoder(w).Encode(gameServers)
+	json.NewEncoder(w).Encode(status)
 }
