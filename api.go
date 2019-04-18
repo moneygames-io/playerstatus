@@ -13,6 +13,7 @@ import (
 )
 
 var playerRedis *redis.Client
+var gameserverRedis *redis.Client
 
 type Player struct {
 	Id  string
@@ -20,11 +21,20 @@ type Player struct {
 	Gameserver	string
 }
 
+type Receipt struct {
+	DestinationAddress string
+	Confirmed string
+	Unconfirmed string
+	PendingAddresses []string
+}
+
 func main() {
 	corsObj := handlers.AllowedOrigins([]string{"*"})
 	router := mux.NewRouter()
 	router.HandleFunc("/player/{token}", PlayerHandler).Methods("GET")
+	router.HandleFunc("/receipt/{gameserverid}", ReceiptHandler).Methods("GET")
 	playerRedis = connectToRedis("redis-players:6379")
+	gameserverRedis = connectToRedis("redis-gameservers:6379")
 	log.Fatal(http.ListenAndServe(":6002", handlers.CORS(corsObj)(router)))
 }
 
@@ -57,4 +67,27 @@ func PlayerHandler(w http.ResponseWriter, r *http.Request) {
 		status = "invalid"
 	}
 	json.NewEncoder(w).Encode(status)
+}
+
+func ReceiptHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	gameserverid := vars["gameserverid"]
+	destinationAddress, _ := gameserverRedis.HGet(gameserverid, "destinationAddress").Result()
+	confirmed, _ := gameserverRedis.HGet(gameserverid, "confirmed").Result()
+	unconfirmed, _ := gameserverRedis.HGet(gameserverid, "unconfirmed").Result()
+	pendingPlayers, _ := playerRedis.SMembers(gameserverid).Result()
+	var pendingAddresses []string
+	for _, token := range pendingPlayers {
+		addr, err := playerRedis.HGet(token, "paymentAddress").Result()
+		if err==nil && addr != ""  {
+			pendingAddresses = append(pendingAddresses, addr)
+		}
+	}
+	receipt := &Receipt{
+		DestinationAddress: destinationAddress,
+		Confirmed: confirmed,
+		Unconfirmed: unconfirmed,
+		PendingAddresses: pendingAddresses,
+	}
+	json.NewEncoder(w).Encode(receipt)
 }
